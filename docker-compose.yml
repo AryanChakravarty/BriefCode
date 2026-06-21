@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ticket_brief
+    volumes:
+      - ticket_brief_pgdata:/var/lib/postgresql/data
+
+volumes:
+  ticket_brief_pgdata:

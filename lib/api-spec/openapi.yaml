@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Jira Ticket Briefing API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: briefs
+    description: Ticket briefing operations
+  - name: config
+    description: Configuration status
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /briefs:
+    get:
+      operationId: listBriefs
+      tags: [briefs]
+      summary: List past briefings
+      responses:
+        "200":
+          description: List of briefings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BriefSummary"
+    post:
+      operationId: createBrief
+      tags: [briefs]
+      summary: Generate a briefing from a Jira key or PR URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BriefInput"
+      responses:
+        "201":
+          description: Briefing created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brief"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Upstream API error (Jira/GitHub unreachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /briefs/{id}:
+    get:
+      operationId: getBrief
+      tags: [briefs]
+      summary: Get a specific briefing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Briefing found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Brief"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteBrief
+      tags: [briefs]
+      summary: Delete a briefing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /config/status:
+    get:
+      operationId: getConfigStatus
+      tags: [config]
+      summary: Check if Jira and GitHub credentials are configured
+      responses:
+        "200":
+          description: Config status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigStatus"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    BriefInput:
+      type: object
+      properties:
+        input:
+          type: string
+          description: Jira ticket key, Jira URL, or GitHub PR URL (fallback/legacy)
+        prUrl:
+          type: string
+        jiraUrl:
+          type: string
+        jiraContext:
+          type: string
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadedFile"
+
+    UploadedFile:
+      type: object
+      required: [name, content]
+      properties:
+        name:
+          type: string
+        content:
+          type: string
+
+    BriefSection:
+      type: object
+      required: [title, content]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+
+    Brief:
+      type: object
+      required: [id, input, mode, title, sections, createdAt]
+      properties:
+        id:
+          type: integer
+        input:
+          type: string
+        mode:
+          type: string
+          enum: [ticket-only, ticket-and-pr, pr-only]
+        title:
+          type: string
+        sections:
+          type: array
+          items:
+            $ref: "#/components/schemas/BriefSection"
+        jiraKey:
+          type: ["string", "null"]
+        prUrl:
+          type: ["string", "null"]
+        rawJira:
+          type: ["string", "null"]
+        rawPr:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    BriefSummary:
+      type: object
+      required: [id, input, mode, title, createdAt]
+      properties:
+        id:
+          type: integer
+        input:
+          type: string
+        mode:
+          type: string
+          enum: [ticket-only, ticket-and-pr, pr-only]
+        title:
+          type: string
+        jiraKey:
+          type: ["string", "null"]
+        prUrl:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    ConfigStatus:
+      type: object
+      required: [jiraConfigured, githubConfigured, allConfigured]
+      properties:
+        jiraConfigured:
+          type: boolean
+        githubConfigured:
+          type: boolean
+        allConfigured:
+          type: boolean
+        missingVars:
+          type: array
+          items:
+            type: string
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
