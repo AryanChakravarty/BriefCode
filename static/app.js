@@ -11,7 +11,10 @@ const state = {
   isGenerating: false,
   configStatus: null,
   wordCount: 0,
-  toastId: 0
+  toastId: 0,
+  qaQuestion: "",
+  qaAnswer: null,
+  isAnswering: false
 };
 
 // --- Toast System ---
@@ -133,6 +136,11 @@ function render() {
   const appContainer = document.getElementById("app");
   if (!appContainer) return;
 
+  // Save scroll position of the main content area before re-rendering
+  const mainScrollContainer = appContainer.querySelector("main div.overflow-auto");
+  const scrollTop = mainScrollContainer ? mainScrollContainer.scrollTop : 0;
+  const scrollLeft = mainScrollContainer ? mainScrollContainer.scrollLeft : 0;
+
   // 1. Auth Gate Check
   if (!state.token) {
     appContainer.className = "flex min-h-screen w-full items-center justify-center bg-background text-foreground p-6";
@@ -161,6 +169,13 @@ function render() {
 
   appContainer.innerHTML = renderLayout(pageHTML);
   lucide.createIcons();
+
+  // Restore scroll position after rendering
+  const newScrollContainer = appContainer.querySelector("main div.overflow-auto");
+  if (newScrollContainer) {
+    newScrollContainer.scrollTop = scrollTop;
+    newScrollContainer.scrollLeft = scrollLeft;
+  }
 }
 
 // --- View Templates ---
@@ -360,12 +375,12 @@ function renderHome() {
               <div class="flex justify-between items-center">
                 <label class="font-mono text-xs text-muted-foreground">JIRA TICKET / PROJECT CONTEXT</label>
                 <span id="word-counter" class="text-[10px] font-mono text-muted-foreground">
-                  0 / 100 WORDS
+                  0 / 200 WORDS
                 </span>
               </div>
               <textarea 
                 id="jira-context"
-                placeholder="Paste descriptions, acceptance criteria, or JIRA ticket text context here (max 100 words)..." 
+                placeholder="Paste descriptions, acceptance criteria, or JIRA ticket text context here (max 200 words)..." 
                 class="w-full font-mono text-sm bg-background border border-muted hover:border-emerald-500/40 focus:border-emerald-500 focus:outline-none p-3 min-h-[100px] rounded-md text-foreground placeholder:text-muted-foreground/60 transition-colors resize-y"
                 oninput="updateWordCounter(this.value)"
                 ${state.isGenerating ? "disabled" : ""}
@@ -599,6 +614,49 @@ function renderBriefView(brief) {
       <div class="space-y-6">
         ${sectionsHTML}
       </div>
+
+      <!-- Q&A Section -->
+      <div class="border-t border-muted pt-8 mt-12 space-y-4">
+        <h3 class="font-mono text-sm font-bold text-foreground flex items-center gap-2">
+          <i data-lucide="help-circle" class="w-4 h-4 text-emerald-500"></i>
+          BRIEFING Q&A
+        </h3>
+        <p class="text-[11px] font-mono text-muted-foreground">
+          Ask a specific question about this briefing context. Note: Previous answers are overwritten.
+        </p>
+        
+        <form onsubmit="handleBriefQuestionSubmit(event, ${brief.id})" class="space-y-3">
+          <div class="flex gap-2">
+            <input 
+              type="text" 
+              id="qa-input" 
+              placeholder="e.g. What are the key security considerations?" 
+              value="${state.qaQuestion || ''}"
+              oninput="state.qaQuestion = this.value"
+              required
+              class="flex-1 font-mono text-sm bg-background border border-muted hover:border-emerald-500/40 focus:border-emerald-500 focus:outline-none px-3 h-10 rounded-md text-foreground placeholder:text-muted-foreground/60 transition-colors"
+              ${state.isAnswering ? "disabled" : ""}
+            />
+            <button 
+              type="submit" 
+              class="px-4 h-10 font-mono text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-md flex items-center justify-center transition-colors shrink-0"
+              ${state.isAnswering ? "disabled" : ""}
+            >
+              <span class="mr-1.5">${state.isAnswering ? "ASKING..." : "ASK"}</span>
+              <i data-lucide="${state.isAnswering ? 'loader-2' : 'arrow-right'}" class="w-4 h-4 ${state.isAnswering ? 'animate-spin' : ''}"></i>
+            </button>
+          </div>
+        </form>
+        ${state.qaAnswer ? `
+          <div class="mt-4 p-4 bg-muted/20 border border-emerald-900/30 rounded-md text-sm leading-relaxed whitespace-pre-line text-foreground animate-in fade-in duration-300">
+            <div class="text-[10px] font-mono text-emerald-400 font-bold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+              System Response
+            </div>
+            ${state.qaAnswer}
+          </div>
+        ` : ""}
+      </div>
     </div>
   `;
 }
@@ -682,8 +740,8 @@ function updateWordCounter(val) {
   const count = countWords(val);
   state.wordCount = count;
   if (counter) {
-    counter.innerText = `${count} / 100 WORDS`;
-    if (count > 100) {
+    counter.innerText = `${count} / 200 WORDS`;
+    if (count > 200) {
       counter.className = "text-[10px] font-mono text-red-500 font-bold";
     } else {
       counter.className = "text-[10px] font-mono text-muted-foreground";
@@ -765,8 +823,8 @@ async function handleBriefSubmit(e) {
     return;
   }
 
-  if (countWords(jiraContext) > 100) {
-    showToast("Validation Error", "Jira context exceeds the 100-word limit.", "destructive");
+  if (countWords(jiraContext) > 200) {
+    showToast("Validation Error", "Jira context exceeds the 200-word limit.", "destructive");
     return;
   }
 
@@ -857,9 +915,39 @@ async function initializeApp() {
   render();
 }
 
+// Q&A Question Handler
+async function handleBriefQuestionSubmit(e, briefId) {
+  e.preventDefault();
+  const question = (state.qaQuestion || "").trim();
+  if (!question) return;
+
+  state.isAnswering = true;
+  state.qaAnswer = null;
+  render();
+
+  try {
+    const res = await fetchAPI(`/api/briefs/${briefId}/ask`, {
+      method: "POST",
+      body: { question }
+    });
+    if (res && res.answer) {
+      state.qaAnswer = res.answer;
+    }
+  } catch (err) {
+    showToast("Q&A Failed", err.message, "destructive");
+  } finally {
+    state.isAnswering = false;
+    render();
+  }
+}
+
 // Router Event Listener
 window.addEventListener("hashchange", () => {
   state.route = window.location.hash || "#/";
+  // Clear Q&A state on navigation
+  state.qaQuestion = "";
+  state.qaAnswer = null;
+  state.isAnswering = false;
   render();
 });
 

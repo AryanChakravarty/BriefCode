@@ -152,3 +152,55 @@ Respond in JSON format with exactly:
                 {"title": "AI Briefing Summary", "content": error_msg}
             ]
         }
+
+
+def answer_brief_question(
+    brief_title: str,
+    brief_sections: List[Dict[str, Any]],
+    question: str,
+    jira_context: Optional[str] = None,
+    pr_title: Optional[str] = None
+) -> str:
+    if not gemini_api_key:
+        return "GEMINI_API_KEY is not configured. Configure it to enable Q&A."
+
+    sections_str = "\n\n".join([f"## {s.get('title')}\n{s.get('content')}" for s in brief_sections])
+    
+    context_parts = []
+    if pr_title:
+        context_parts.append(f"PR Title: {pr_title}")
+    if jira_context:
+        context_parts.append(f"Jira Ticket Context:\n{jira_context}")
+    
+    extra_context = "\n\n".join(context_parts)
+
+    prompt = f"""You are a senior engineer helping a teammate understand a PR or JIRA ticket briefing.
+    
+Briefing Title: {brief_title}
+
+Briefing Sections:
+{sections_str}
+
+Additional Ticket/PR Context:
+{extra_context}
+
+User Question:
+{question}
+
+Please answer the user's question directly, accurately, and concisely. Keep the response professional, developer-focused, and under 4-5 sentences. Avoid speculation if the answer is not in the context. Output plain text or basic Markdown. Do not repeat the question or add greeting/filler text."""
+
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_api_key}"
+        response = requests.post(url, json={
+            "contents": [{"parts": [{"text": prompt}]}]
+        }, timeout=30)
+        response.raise_for_status()
+        json_data = response.json()
+        return json_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except Exception as e:
+        error_msg = str(e)
+        if 'response' in locals() and response is not None:
+            error_msg += f" - Response Details: {response.text}"
+        print(f"Q&A generation failed: {error_msg}")
+        return f"Failed to generate answer: {error_msg}"
+

@@ -42,7 +42,7 @@ from database import init_db, get_session
 from models import User, Brief, FileChunk
 from auth import get_password_hash, verify_password, create_access_token, get_current_user
 from github import parse_github_pr_url, fetch_pr_data
-from rag import chunk_text, get_embedding, generate_rag_briefing
+from rag import chunk_text, get_embedding, generate_rag_briefing, answer_brief_question
 
 # Initialize FastAPI
 app = FastAPI(title="Ticket Briefing API", version="0.1.0")
@@ -85,6 +85,9 @@ class TokenResponse(BaseModel):
 class UploadedFileSchema(BaseModel):
     name: str
     content: str  # Base64 encoded content
+
+class AskQuestionBody(BaseModel):
+    question: str
 
 class CreateBriefBody(BaseModel):
     input: Optional[str] = None
@@ -387,3 +390,35 @@ def delete_brief(
     session.delete(brief)
     session.commit()
     return
+
+@app.post("/api/briefs/{id}/ask")
+def ask_brief(
+    id: int,
+    body: AskQuestionBody,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    query = select(Brief).where(Brief.id == id)
+    if current_user:
+         query = query.where(Brief.user_id == current_user.id)
+    brief = session.exec(query).first()
+    if not brief:
+        raise HTTPException(status_code=404, detail="Brief not found")
+        
+    pr_title = ""
+    if brief.rawPr:
+        try:
+            pr_data = json.loads(brief.rawPr)
+            pr_title = pr_data.get("title", "")
+        except:
+            pass
+
+    answer = answer_brief_question(
+        brief_title=brief.title,
+        brief_sections=brief.sections,
+        question=body.question,
+        jira_context=brief.jiraContext,
+        pr_title=pr_title
+    )
+    return {"answer": answer}
+
